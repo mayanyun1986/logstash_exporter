@@ -1,8 +1,9 @@
 package main
 
 import (
-	"github.com/BonnierNews/logstash_exporter/collector"
+	"github.com/logstash_exporter/collector"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/prometheus/common/log"
 	"github.com/prometheus/common/version"
 	"gopkg.in/alecthomas/kingpin.v2"
@@ -102,7 +103,7 @@ func init() {
 
 func main() {
 	var (
-		logstashEndpoint    = kingpin.Flag("logstash.endpoint", "The protocol, host and port on which logstash metrics API listens").Default("http://localhost:9600").String()
+		//logstashEndpoint    = kingpin.Flag("logstash.endpoint", "The protocol, host and port on which logstash metrics API listens").Default("http://localhost:9600").String()
 		exporterBindAddress = kingpin.Flag("web.listen-address", "Address on which to expose metrics and web interface.").Default(":9198").String()
 	)
 
@@ -111,14 +112,35 @@ func main() {
 	kingpin.HelpFlag.Short('h')
 	kingpin.Parse()
 
-	logstashCollector, err := NewLogstashCollector(*logstashEndpoint)
-	if err != nil {
-		log.Fatalf("Cannot register a new Logstash Collector: %v", err)
-	}
 
-	prometheus.MustRegister(logstashCollector)
+
+
+
 
 	log.Infoln("Starting Logstash exporter", version.Info())
 	log.Infoln("Build context", version.BuildContext())
-	listen(*exporterBindAddress)
+	http.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
+
+		target := r.URL.Query().Get("target")
+
+		logstashCollector, err := NewLogstashCollector(target)
+		if err != nil {
+			log.Fatalf("Cannot register a new Logstash Collector: %v", err)
+		}
+
+		reg := prometheus.NewRegistry()
+		reg.MustRegister(logstashCollector)
+
+		promhttp.HandlerFor(
+			reg, promhttp.HandlerOpts{ErrorHandling: promhttp.ContinueOnError},
+		).ServeHTTP(w, r)
+	})
+	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/metrics", http.StatusMovedPermanently)
+	})
+
+	log.Infoln("Starting server on", exporterBindAddress)
+	if err := http.ListenAndServe(*exporterBindAddress, nil); err != nil {
+		log.Fatalf("Cannot start Logstash exporter: %s", err)
+	}
 }
