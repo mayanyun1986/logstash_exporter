@@ -129,6 +129,7 @@ func main() {
 		}
 
 		reg := prometheus.NewRegistry()
+		reg.Unregister(logstashCollector)
 		reg.MustRegister(logstashCollector)
 
 		promhttp.HandlerFor(
